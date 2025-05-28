@@ -1,5 +1,5 @@
 const { DateTime } = require("luxon");
-const { julian, planetposition } = require("astronomia");
+const { julian, planetposition, data } = require("astronomia");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -28,50 +28,29 @@ module.exports = async (req, res) => {
       julian.CalendarGregorianToJD(dt.year, dt.month, dt.day) +
       (dt.hour + dt.minute / 60) / 24;
 
-    // Определяем долготы планет
-    const planets = [
-      {
-        key: "sun",
-        name: "Солнце",
-        getPos: () => planetposition.sun(jd)
-      },
-      {
-        key: "mercury",
-        name: "Меркурий",
-        getPos: () => planetposition.mercury(jd)
-      },
-      {
-        key: "venus",
-        name: "Венера",
-        getPos: () => planetposition.venus(jd)
-      },
-      {
-        key: "mars",
-        name: "Марс",
-        getPos: () => planetposition.mars(jd)
-      },
-      {
-        key: "jupiter",
-        name: "Юпитер",
-        getPos: () => planetposition.jupiter(jd)
-      },
-      {
-        key: "saturn",
-        name: "Сатурн",
-        getPos: () => planetposition.saturn(jd)
-      }
-    ];
+    // Солнце: геоцентрическая долгота = долгота Земли + 180°
+    const earth = new planetposition.Planet(data.vsop87Bearth, 'Earth');
+    const earthPos = planetposition.position(earth, jd);
+    let sunLon = (earthPos.lon + 180) % 360;
 
-    const positions = {};
-    for (const planet of planets) {
-      let pos = planet.getPos();
-      let lon = typeof pos === 'object' && 'lon' in pos ? pos.lon : pos;
-      lon = ((lon % 360) + 360) % 360;
-      positions[planet.key] = {
-        deg: Math.round(lon * 1000) / 1000,
-        sign: getZodiac(lon)
-      };
-    }
+    // Остальные планеты
+    const mercury = new planetposition.Planet(data.vsop87Bmercury, 'Mercury');
+    const venus = new planetposition.Planet(data.vsop87Bvenus, 'Venus');
+    const mars = new planetposition.Planet(data.vsop87Bmars, 'Mars');
+    const jupiter = new planetposition.Planet(data.vsop87Bjupiter, 'Jupiter');
+    const saturn = new planetposition.Planet(data.vsop87Bsaturn, 'Saturn');
+
+    const positions = {
+      sun: {
+        deg: Math.round(sunLon * 1000) / 1000,
+        sign: getZodiac(sunLon)
+      },
+      mercury: getPlanetPosition(mercury, jd),
+      venus: getPlanetPosition(venus, jd),
+      mars: getPlanetPosition(mars, jd),
+      jupiter: getPlanetPosition(jupiter, jd),
+      saturn: getPlanetPosition(saturn, jd)
+    };
 
     res.status(200).json({ jd, planets: positions });
   } catch (e) {
@@ -79,6 +58,15 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+function getPlanetPosition(planet, jd) {
+  const pos = planetposition.position(planet, jd);
+  let lon = ((pos.lon % 360) + 360) % 360;
+  return {
+    deg: Math.round(lon * 1000) / 1000,
+    sign: getZodiac(lon)
+  };
+}
 
 function getZodiac(deg) {
   const signs = [
