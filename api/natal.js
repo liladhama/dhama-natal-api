@@ -1,11 +1,21 @@
 const { DateTime } = require("luxon");
 const Astronomy = require("astronomy-engine");
 
+const JD_J2000 = 2451545.0;
+
 function getLahiriAyanamsa(jd) {
     // JD на эпоху 1900-01-01 12:00 UT
     const jd0 = 2415020.0;
     const t = (jd - jd0) / 36525;
     return (22.460148 + 1.396042 * t + 3.08e-4 * t * t);
+}
+
+// Средний лунный узел (mean node) — градусы
+function meanLunarNodeLongitude(jd) {
+  const T = (jd - JD_J2000) / 36525.0;
+  let Ω = 125.04452 - 1934.136261 * T + 0.0020708 * T*T + (T*T*T)/450000;
+  Ω = ((Ω % 360) + 360) % 360;
+  return Ω;
 }
 
 module.exports = async (req, res) => {
@@ -59,9 +69,8 @@ module.exports = async (req, res) => {
       };
     }
 
-    // Раху (восходящий узел Луны, true node)
-    const node = Astronomy.Node(Astronomy.Body.Moon, date, +1); // +1 = восходящий
-    let rahuTropical = node.elon;
+    // Раху (mean node, средний лунный узел)
+    let rahuTropical = meanLunarNodeLongitude(jd);
     let rahuSidereal = (rahuTropical - ayanamsa + 360) % 360;
     positions["rahu"] = {
       deg: Math.round(rahuSidereal * 1000) / 1000,
