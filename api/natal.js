@@ -1,5 +1,7 @@
 const { DateTime } = require("luxon");
-const { julian, planetposition, data } = require("astronomia");
+const julian = require("astronomia/lib/julian");
+const planetposition = require("astronomia/lib/planetposition");
+const data = require("astronomia/data");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -26,23 +28,27 @@ module.exports = async (req, res) => {
       julian.CalendarGregorianToJD(dt.year, dt.month, dt.day) +
       (dt.hour + dt.minute / 60) / 24;
 
+    // Для примера выведем, что лежит в data:
+    // res.status(200).json({ data: Object.keys(data) }); return;
+
+    // Обрати внимание: в некоторых версиях astronomia структура data другая!
     const PLANETS = [
-      { name: "Sun", key: "sun", data: data.sun },
-      { name: "Moon", key: "moon", data: data.moon },
-      { name: "Mercury", key: "mercury", data: data.mercury },
-      { name: "Venus", key: "venus", data: data.venus },
-      { name: "Mars", key: "mars", data: data.mars },
-      { name: "Jupiter", key: "jupiter", data: data.jupiter },
-      { name: "Saturn", key: "saturn", data: data.saturn }
+      { name: "Sun", key: "sun", data: data.vsop87Bearth }, // sun нет, используем earth
+      { name: "Moon", key: "moon", data: null }, // moon считается отдельно
+      { name: "Mercury", key: "mercury", data: data.vsop87Bmercury },
+      { name: "Venus", key: "venus", data: data.vsop87Bvenus },
+      { name: "Mars", key: "mars", data: data.vsop87Bmars },
+      { name: "Jupiter", key: "jupiter", data: data.vsop87Bjupiter },
+      { name: "Saturn", key: "saturn", data: data.vsop87Bsaturn }
     ];
 
     const positions = {};
     for (const planet of PLANETS) {
       let pos;
       if (planet.key === "moon") {
-        pos = planetposition.moon(data.earth, jd);
+        pos = planetposition.moon(data.vsop87Bearth, jd);
       } else if (planet.key === "sun") {
-        pos = planetposition.sun(data.earth, jd);
+        pos = planetposition.sun(data.vsop87Bearth, jd);
       } else {
         pos = planetposition.position(planet.data, jd);
       }
