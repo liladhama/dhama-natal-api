@@ -1,5 +1,5 @@
 const { DateTime } = require("luxon");
-const { julian, planetposition } = require("astronomia");
+const astronomia = require("astronomia");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -7,6 +7,7 @@ module.exports = async (req, res) => {
     return;
   }
   try {
+    // Проверка входных параметров
     const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
     if (
       year === undefined || month === undefined || day === undefined ||
@@ -17,57 +18,46 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // Время UTC с учётом смещения
+    // UTC время с учётом смещения
     const dt = DateTime.fromObject(
       { year, month, day, hour, minute },
       { zone: "UTC" }
     ).minus({ hours: tzOffset || 0 });
 
     // Юлианская дата
-    const jd = julian.CalendarGregorianToJD(dt.year, dt.month, dt.day) +
+    const jd =
+      astronomia.julian.CalendarGregorianToJD(dt.year, dt.month, dt.day) +
       (dt.hour + dt.minute / 60) / 24;
 
-    // Для новых версий astronomia используем planetposition.vsop87b
-    // Документация: https://www.npmjs.com/package/astronomia#vsop87b
-    const planets = [
-      { key: "mercury", fn: planetposition.vsop87b.mercury },
-      { key: "venus", fn: planetposition.vsop87b.venus },
-      { key: "mars", fn: planetposition.vsop87b.mars },
-      { key: "jupiter", fn: planetposition.vsop87b.jupiter },
-      { key: "saturn", fn: planetposition.vsop87b.saturn }
-    ];
+    // Для теста: выведем, что есть в astronomia.planetposition
+    const ppKeys = Object.keys(astronomia.planetposition);
+    // Для теста: выведем, что есть в astronomia
+    const aKeys = Object.keys(astronomia);
 
-    // Земля для расчёта долготы Солнца
-    const earthPos = planetposition.vsop87b.earth(jd);
-    let sunLon = (earthPos.lon + 180) % 360;
-
-    const positions = {
-      sun: {
-        deg: Math.round(sunLon * 1000) / 1000,
-        sign: getZodiac(sunLon)
+    // Пример: расчёт долготы Солнца через Землю (если возможно)
+    let sunLon = null;
+    if (
+      astronomia.planetposition &&
+      typeof astronomia.planetposition.earth === "function"
+    ) {
+      try {
+        const earth = astronomia.planetposition.earth(jd);
+        sunLon = ((earth.lon + 180) % 360);
+      } catch (e) {
+        sunLon = null;
       }
-    };
-
-    for (const planet of planets) {
-      const pos = planet.fn(jd);
-      let lon = ((pos.lon % 360) + 360) % 360;
-      positions[planet.key] = {
-        deg: Math.round(lon * 1000) / 1000,
-        sign: getZodiac(lon)
-      };
     }
 
-    res.status(200).json({ jd, planets: positions });
+    // Вернём отладочную информацию для дальнейшей настройки
+    res.status(200).json({
+      jd,
+      "astronomia.planetposition keys": ppKeys,
+      "astronomia keys": aKeys,
+      "sun longitude": sunLon,
+      "message": "Скопируй этот ответ и пришли его сюда – я подберу точный рабочий способ для твоей версии!"
+    });
   } catch (e) {
     console.error("Natal API error:", e, JSON.stringify(req.body));
     res.status(500).json({ error: e.message });
   }
 };
-
-function getZodiac(deg) {
-  const signs = [
-    "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
-    "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"
-  ];
-  return signs[Math.floor(deg / 30)];
-}
