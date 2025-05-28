@@ -3,17 +3,27 @@ const Astronomy = require("astronomy-engine");
 
 const JD_J2000 = 2451545.0;
 
+// Лахири айанамша (сидерический зодиак)
 function getLahiriAyanamsa(jd) {
-    const jd0 = 2415020.0;
+    const jd0 = 2415020.0; // JD для 1900-01-01 12:00 UT
     const t = (jd - jd0) / 36525;
-    return (22.460148 + 1.396042 * t + 3.08e-4 * t * t);
+    return 22.460148 + 1.396042 * t + 3.08e-4 * t * t;
 }
 
+// Средний лунный узел (Rahu, mean node)
 function meanLunarNodeLongitude(jd) {
   const T = (jd - JD_J2000) / 36525.0;
-  let Ω = 125.04452 - 1934.136261 * T + 0.0020708 * T*T + (T*T*T)/450000;
-  Ω = ((Ω % 360) + 360) % 360;
-  return Ω;
+  let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T)/450000;
+  omega = ((omega % 360) + 360) % 360;
+  return omega;
+}
+
+function getZodiac(deg) {
+  const signs = [
+    "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
+    "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"
+  ];
+  return signs[Math.floor(deg / 30)];
 }
 
 module.exports = async (req, res) => {
@@ -33,6 +43,7 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // Корректное UTC-время с учётом смещения
     const dt = DateTime.fromObject(
       { year, month, day, hour, minute },
       { zone: "UTC" }
@@ -42,7 +53,9 @@ module.exports = async (req, res) => {
     console.log('DATE OBJ:', date);
 
     const astroTime = Astronomy.MakeTime(date);
-    const jd = astroTime ? astroTime.julianDay : null;
+    console.log("astroTime:", astroTime);
+
+    const jd = astroTime && astroTime.jd ? astroTime.jd : null;
     console.log('JD:', jd);
 
     if (!jd) {
@@ -50,8 +63,10 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // Лахири айанамша
     const ayanamsa = getLahiriAyanamsa(jd);
 
+    // Планеты
     const planetNames = [
       'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
     ];
@@ -60,6 +75,7 @@ module.exports = async (req, res) => {
     for (const pname of planetNames) {
       let lon = null;
       if (pname === "Sun") {
+        // Солнце: долгота Земли + 180°
         const earthEclLon = Astronomy.EclipticLongitude(Astronomy.Body.Earth, date);
         lon = (earthEclLon !== undefined && earthEclLon !== null) ? (earthEclLon + 180) % 360 : null;
       } else {
@@ -77,20 +93,21 @@ module.exports = async (req, res) => {
       };
     }
 
-    // Rahu & Ketu
+    // Раху (mean node, средний узел)
     let rahuTropical = meanLunarNodeLongitude(jd);
     let rahuSidereal = (rahuTropical - ayanamsa + 360) % 360;
     positions["rahu"] = {
       deg: Math.round(rahuSidereal * 1000) / 1000,
       sign: getZodiac(rahuSidereal)
     };
+    // Кету (противоположная точка)
     let ketuSidereal = (rahuSidereal + 180) % 360;
     positions["ketu"] = {
       deg: Math.round(ketuSidereal * 1000) / 1000,
       sign: getZodiac(ketuSidereal)
     };
 
-    // Ascendant (lagna)
+    // Асцендент (лагна)
     const observer = new Astronomy.Observer(latitude, longitude, 0);
     const ascHorizon = Astronomy.Horizon(date, observer, 90, 0, "normal");
     let ascEcliptic = ascHorizon ? ascHorizon.elon : null;
@@ -106,11 +123,3 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
-
-function getZodiac(deg) {
-  const signs = [
-    "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
-    "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"
-  ];
-  return signs[Math.floor(deg / 30)];
-}
