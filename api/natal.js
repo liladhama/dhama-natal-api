@@ -1,6 +1,13 @@
 const { DateTime } = require("luxon");
 const Astronomy = require("astronomy-engine");
 
+function getLahiriAyanamsa(jd) {
+    // JD на эпоху 1900-01-01 12:00 UT
+    const jd0 = 2415020.0;
+    const t = (jd - jd0) / 36525;
+    return (22.460148 + 1.396042 * t + 3.08e-4 * t * t);
+}
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
@@ -24,29 +31,60 @@ module.exports = async (req, res) => {
     ).minus({ hours: tzOffset || 0 });
 
     const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
+    const jd = Astronomy.MakeTime(date).julianDay;
 
-    const planetNames = ['Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'];
+    // 1. Лахири айанамша
+    const ayanamsa = getLahiriAyanamsa(jd);
+
+    // 2. Тропические долготы планет
+    const planetNames = [
+      'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
+    ];
     const positions = {};
 
-    // Геоцентрическая эклиптическая долгота Солнца (через функцию Earth)
-    // Astronomy-engine не считает "долготу Солнца", но считает "геоцентрическую долготу Земли" — они отличаются на 180°
-    const earthEclLon = Astronomy.EclipticLongitude(Astronomy.Body.Earth, date);
-    let sunLon = (earthEclLon + 180) % 360;
-    positions["sun"] = {
-      deg: Math.round(sunLon * 1000) / 1000,
-      sign: getZodiac(sunLon)
-    };
-
     for (const pname of planetNames) {
-      const ecl = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
-      let lon = ((ecl + 360) % 360);
+      let lon;
+      if (pname === "Sun") {
+        // Солнце: долгота Земли + 180°
+        const earthEclLon = Astronomy.EclipticLongitude(Astronomy.Body.Earth, date);
+        lon = (earthEclLon + 180) % 360;
+      } else {
+        lon = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
+      }
+      // Переводим в сидерический зодиак
+      let sidereal = (lon - ayanamsa + 360) % 360;
       positions[pname.toLowerCase()] = {
-        deg: Math.round(lon * 1000) / 1000,
-        sign: getZodiac(lon)
+        deg: Math.round(sidereal * 1000) / 1000,
+        sign: getZodiac(sidereal)
       };
     }
 
-    res.status(200).json({ date: date.toISOString(), planets: positions });
+    // Раху (восходящий узел Луны, true node)
+    const node = Astronomy.Node(Astronomy.Body.Moon, date, +1); // +1 = восходящий
+    let rahuTropical = node.elon;
+    let rahuSidereal = (rahuTropical - ayanamsa + 360) % 360;
+    positions["rahu"] = {
+      deg: Math.round(rahuSidereal * 1000) / 1000,
+      sign: getZodiac(rahuSidereal)
+    };
+
+    // Кету (противоположная точка)
+    let ketuSidereal = (rahuSidereal + 180) % 360;
+    positions["ketu"] = {
+      deg: Math.round(ketuSidereal * 1000) / 1000,
+      sign: getZodiac(ketuSidereal)
+    };
+
+    // Асцендент (лагна)
+    const observer = new Astronomy.Observer(latitude, longitude, 0);
+    const ascEcliptic = Astronomy.Horizon(date, observer, 90, 0, "normal").elon;
+    let ascSidereal = (ascEcliptic - ayanamsa + 360) % 360;
+    positions["asc"] = {
+      deg: Math.round(ascSidereal * 1000) / 1000,
+      sign: getZodiac(ascSidereal)
+    };
+
+    res.status(200).json({ date: date.toISOString(), ayanamsa, planets: positions });
   } catch (e) {
     console.error("Natal API error:", e, JSON.stringify(req.body));
     res.status(500).json({ error: e.message });
