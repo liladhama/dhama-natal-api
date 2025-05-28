@@ -1,5 +1,5 @@
 const { DateTime } = require("luxon");
-const astronomia = require("astronomia");
+const { julian, planetposition } = require("astronomia");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -17,7 +17,7 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // Время в UTC, с учётом смещения
+    // UTC время с учётом смещения
     const dt = DateTime.fromObject(
       { year, month, day, hour, minute },
       { zone: "UTC" }
@@ -25,50 +25,48 @@ module.exports = async (req, res) => {
 
     // Юлианская дата
     const jd =
-      astronomia.julian.CalendarGregorianToJD(dt.year, dt.month, dt.day) +
+      julian.CalendarGregorianToJD(dt.year, dt.month, dt.day) +
       (dt.hour + dt.minute / 60) / 24;
 
-    // Определяем список планет и нужные функции
+    // Определяем долготы планет
     const planets = [
       {
         key: "sun",
         name: "Солнце",
-        getPos: () => astronomia.planetposition.sun(jd)
+        getPos: () => planetposition.sun(jd)
       },
       {
         key: "mercury",
         name: "Меркурий",
-        getPos: () => astronomia.planetposition.mercury(jd)
+        getPos: () => planetposition.mercury(jd)
       },
       {
         key: "venus",
         name: "Венера",
-        getPos: () => astronomia.planetposition.venus(jd)
+        getPos: () => planetposition.venus(jd)
       },
       {
         key: "mars",
         name: "Марс",
-        getPos: () => astronomia.planetposition.mars(jd)
+        getPos: () => planetposition.mars(jd)
       },
       {
         key: "jupiter",
         name: "Юпитер",
-        getPos: () => astronomia.planetposition.jupiter(jd)
+        getPos: () => planetposition.jupiter(jd)
       },
       {
         key: "saturn",
         name: "Сатурн",
-        getPos: () => astronomia.planetposition.saturn(jd)
+        getPos: () => planetposition.saturn(jd)
       }
     ];
 
-    // Собираем позиции
     const positions = {};
     for (const planet of planets) {
       let pos = planet.getPos();
-      // pos может быть объектом с полем lon или просто числом (зависит от версии astronomia)
       let lon = typeof pos === 'object' && 'lon' in pos ? pos.lon : pos;
-      lon = ((lon % 360) + 360) % 360; // нормализуем
+      lon = ((lon % 360) + 360) % 360;
       positions[planet.key] = {
         deg: Math.round(lon * 1000) / 1000,
         sign: getZodiac(lon)
@@ -82,7 +80,6 @@ module.exports = async (req, res) => {
   }
 };
 
-// Определение знака Зодиака по градусам
 function getZodiac(deg) {
   const signs = [
     "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
