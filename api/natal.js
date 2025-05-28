@@ -1,5 +1,5 @@
 const { DateTime } = require("luxon");
-const astronomia = require("astronomia");
+const Astronomy = require("astronomy-engine");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -7,7 +7,6 @@ module.exports = async (req, res) => {
     return;
   }
   try {
-    // Проверка входных параметров
     const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
     if (
       year === undefined || month === undefined || day === undefined ||
@@ -18,46 +17,38 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // UTC время с учётом смещения
+    // Время UTC c учётом смещения
     const dt = DateTime.fromObject(
       { year, month, day, hour, minute },
       { zone: "UTC" }
     ).minus({ hours: tzOffset || 0 });
 
-    // Юлианская дата
-    const jd =
-      astronomia.julian.CalendarGregorianToJD(dt.year, dt.month, dt.day) +
-      (dt.hour + dt.minute / 60) / 24;
+    // Astronomy-engine использует JavaScript Date в UTC
+    const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
 
-    // Для теста: выведем, что есть в astronomia.planetposition
-    const ppKeys = Object.keys(astronomia.planetposition);
-    // Для теста: выведем, что есть в astronomia
-    const aKeys = Object.keys(astronomia);
+    const planetNames = ['Sun', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'];
+    const positions = {};
 
-    // Пример: расчёт долготы Солнца через Землю (если возможно)
-    let sunLon = null;
-    if (
-      astronomia.planetposition &&
-      typeof astronomia.planetposition.earth === "function"
-    ) {
-      try {
-        const earth = astronomia.planetposition.earth(jd);
-        sunLon = ((earth.lon + 180) % 360);
-      } catch (e) {
-        sunLon = null;
-      }
+    for (const pname of planetNames) {
+      const ecl = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
+      let lon = ((ecl + 360) % 360);
+      positions[pname.toLowerCase()] = {
+        deg: Math.round(lon * 1000) / 1000,
+        sign: getZodiac(lon)
+      };
     }
 
-    // Вернём отладочную информацию для дальнейшей настройки
-    res.status(200).json({
-      jd,
-      "astronomia.planetposition keys": ppKeys,
-      "astronomia keys": aKeys,
-      "sun longitude": sunLon,
-      "message": "Скопируй этот ответ и пришли его сюда – я подберу точный рабочий способ для твоей версии!"
-    });
+    res.status(200).json({ date: date.toISOString(), planets: positions });
   } catch (e) {
     console.error("Natal API error:", e, JSON.stringify(req.body));
     res.status(500).json({ error: e.message });
   }
 };
+
+function getZodiac(deg) {
+  const signs = [
+    "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
+    "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"
+  ];
+  return signs[Math.floor(deg / 30)];
+}
