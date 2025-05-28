@@ -17,17 +17,25 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // Время UTC c учётом смещения
+    // UTC время с учётом смещения
     const dt = DateTime.fromObject(
       { year, month, day, hour, minute },
       { zone: "UTC" }
     ).minus({ hours: tzOffset || 0 });
 
-    // Astronomy-engine использует JavaScript Date в UTC
     const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
 
-    const planetNames = ['Sun', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'];
+    const planetNames = ['Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'];
     const positions = {};
+
+    // Геоцентрическая эклиптическая долгота Солнца (через функцию Earth)
+    // Astronomy-engine не считает "долготу Солнца", но считает "геоцентрическую долготу Земли" — они отличаются на 180°
+    const earthEclLon = Astronomy.EclipticLongitude(Astronomy.Body.Earth, date);
+    let sunLon = (earthEclLon + 180) % 360;
+    positions["sun"] = {
+      deg: Math.round(sunLon * 1000) / 1000,
+      sign: getZodiac(sunLon)
+    };
 
     for (const pname of planetNames) {
       const ecl = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
