@@ -4,12 +4,10 @@ const Body = Astronomy.Body;
 
 const JD_J2000 = 2451545.0;
 
-// Лахири айанамша
 function getLahiriAyanamsa(jd) {
     const t = (jd - JD_J2000) / 36525;
     return 22.460148 + 1.396042 * t + 3.08e-4 * t * t;
 }
-
 function getZodiac(deg) {
     const signs = [
         "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
@@ -17,20 +15,34 @@ function getZodiac(deg) {
     ];
     return signs[Math.floor((deg % 360) / 30)];
 }
-
-// Средний лунный узел (Раху, mean node)
+function getDegreeInSign(deg) {
+    // Градус внутри знака (0-30) с округлением до тысячных
+    return Math.round((deg % 30) * 1000) / 1000;
+}
 function meanLunarNodeLongitude(jd) {
     const T = (jd - JD_J2000) / 36525.0;
     let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T) / 450000;
     omega = ((omega % 360) + 360) % 360;
     return omega;
 }
-
-// CORS
 function setCORSHeaders(res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+function eclipticLongitude(ra, dec, date) {
+    const time = Astronomy.MakeTime(date);
+    const radRA = ra * 15 * Math.PI / 180;
+    const radDec = dec * Math.PI / 180;
+    const x = Math.cos(radDec) * Math.cos(radRA);
+    const y = Math.cos(radDec) * Math.sin(radRA);
+    const z = Math.sin(radDec);
+    const vec = { x, y, z, t: time };
+    const ecl = Astronomy.Ecliptic(vec);
+    let lon = ecl.elon;
+    lon = (lon + 360) % 360;
+    return lon;
 }
 
 module.exports = async (req, res) => {
@@ -112,7 +124,6 @@ module.exports = async (req, res) => {
 
         const ayanamsa = getLahiriAyanamsa(jd);
 
-        // Только классические ведические планеты
         const planetNames = [
             'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
         ];
@@ -120,40 +131,62 @@ module.exports = async (req, res) => {
 
         for (const pname of planetNames) {
             let bodyEnum = Body[pname];
-            // Получаем геоцентрический вектор планеты относительно Земли (J2000)
-            let vector = Astronomy.GeoVector(bodyEnum, date, true); // true = J2000
-            // Переводим в эклиптические координаты
-            let ecl = Astronomy.Ecliptic(vector);
-            let lon = ecl.elon;
-            let sidereal = (lon - ayanamsa + 360) % 360;
-            positions[pname.toLowerCase()] = {
-                deg: Math.round(sidereal * 1000) / 1000,
-                sign: getZodiac(sidereal)
-            };
+            let vector, ecl, lon, sidereal;
+            try {
+                vector = Astronomy.GeoVector(bodyEnum, date, true); // true = J2000
+                ecl = Astronomy.Ecliptic(vector);
+                lon = ecl.elon;
+                sidereal = (lon - ayanamsa + 360) % 360;
+                positions[pname.toLowerCase()] = {
+                    deg: Math.round(sidereal * 1000) / 1000,
+                    sign: getZodiac(sidereal),
+                    deg_in_sign: getDegreeInSign(sidereal)
+                };
+                // Логирование результата для каждой планеты
+                console.log(`${pname}:`, {
+                    geoVector: vector,
+                    ecliptic: ecl,
+                    longitude: lon,
+                    sidereal
+                });
+            } catch (err) {
+                console.error(`Ошибка при расчёте ${pname}:`, err);
+                positions[pname.toLowerCase()] = { deg: null, sign: null, deg_in_sign: null, error: err.message };
+            }
         }
 
-        // Раху и Кету (сидерические координаты)
         let rahuTropical = meanLunarNodeLongitude(jd);
         let rahuSidereal = (rahuTropical - ayanamsa + 360) % 360;
         positions["rahu"] = {
             deg: Math.round(rahuSidereal * 1000) / 1000,
-            sign: getZodiac(rahuSidereal)
+            sign: getZodiac(rahuSidereal),
+            deg_in_sign: getDegreeInSign(rahuSidereal)
         };
         let ketuSidereal = (rahuSidereal + 180) % 360;
         positions["ketu"] = {
             deg: Math.round(ketuSidereal * 1000) / 1000,
-            sign: getZodiac(ketuSidereal)
+            sign: getZodiac(ketuSidereal),
+            deg_in_sign: getDegreeInSign(ketuSidereal)
         };
 
-        // Асцендент (лагна)
-        const observer = new Astronomy.Observer(latitude, longitude, 0);
-        const ascHorizon = Astronomy.Horizon(date, observer, 90, 0, "normal");
+        // Асцендент (лагна) — корректный расчёт
+        let ascSidereal = null, ascEcliptic = null;
+        try {
+            const observer = new Astronomy.Observer(latitude, longitude, 0);
+            const azimuth = 90;
+            const altitude = 0;
+            const eq = Astronomy.Horizon(date, observer, azimuth, altitude, "normal");
+            ascEcliptic = eclipticLongitude(eq.ra, eq.dec, date);
+            ascSidereal = (ascEcliptic - ayanamsa + 360) % 360;
+            console.log('ASC calc:', { ra: eq.ra, dec: eq.dec, ascEcliptic, ayanamsa, ascSidereal });
+        } catch (e) {
+            console.error('ASC calc error:', e);
+        }
 
-        let ascEcliptic = (ascHorizon && typeof ascHorizon.elon === "number") ? ascHorizon.elon : null;
-        let ascSidereal = (ascEcliptic !== null && ayanamsa !== null) ? (ascEcliptic - ayanamsa + 360) % 360 : null;
         positions["asc"] = {
             deg: ascSidereal !== null ? Math.round(ascSidereal * 1000) / 1000 : null,
-            sign: ascSidereal !== null ? getZodiac(ascSidereal) : null
+            sign: ascSidereal !== null ? getZodiac(ascSidereal) : null,
+            deg_in_sign: ascSidereal !== null ? getDegreeInSign(ascSidereal) : null
         };
 
         setCORSHeaders(res);
