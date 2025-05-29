@@ -3,7 +3,7 @@ const Astronomy = require("astronomy-engine");
 
 const JD_J2000 = 2451545.0;
 
-// Лахири айанамша (сидерический зодиак)
+// Лахири айанамша
 function getLahiriAyanamsa(jd) {
     const t = (jd - JD_J2000) / 36525;
     return 22.460148 + 1.396042 * t + 3.08e-4 * t * t;
@@ -115,7 +115,7 @@ module.exports = async (req, res) => {
     const positions = {};
 
     for (const pname of planetNames) {
-      // Ключ: просто геоцентрическая эклиптическая долгота
+      // ВАЖНО! Для всех планет, включая Sun, только так:
       let lon = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
       let sidereal = (lon - ayanamsa + 360) % 360;
       positions[pname.toLowerCase()] = {
