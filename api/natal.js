@@ -156,11 +156,6 @@ module.exports = async (req, res) => {
             sign: ascSidereal !== null ? getZodiac(ascSidereal) : null
         };
 
-        // Для отладки можно раскомментировать
-        // if (ascEcliptic === null) {
-        //     console.error("ASC calculation failed", { latitude, longitude, date: date.toISOString(), ascHorizon });
-        // }
-
         setCORSHeaders(res);
         res.status(200).json({
             date: date.toISOString(),
