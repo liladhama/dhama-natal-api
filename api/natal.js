@@ -26,11 +26,15 @@ function getZodiac(deg) {
   return signs[Math.floor(deg / 30)];
 }
 
-module.exports = async (req, res) => {
-  // --- CORS headers ---
+// -- Добавляем универсальную функцию для CORS --
+function setCORSHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+module.exports = async (req, res) => {
+  setCORSHeaders(res);
 
   // --- Preflight OPTIONS handler ---
   if (req.method === 'OPTIONS') {
@@ -38,6 +42,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method !== "POST") {
+    setCORSHeaders(res);
     res.status(405).json({ error: "Method not allowed" });
     return;
   }
@@ -48,6 +53,7 @@ module.exports = async (req, res) => {
       hour === undefined || minute === undefined ||
       latitude === undefined || longitude === undefined
     ) {
+      setCORSHeaders(res);
       res.status(400).json({ error: "Missing parameters" });
       return;
     }
@@ -62,6 +68,7 @@ module.exports = async (req, res) => {
     const jd = astroTime && astroTime.jd ? astroTime.jd : null;
 
     if (!jd) {
+      setCORSHeaders(res);
       res.status(500).json({ error: "JD (Julian Day) calculation failed" });
       return;
     }
@@ -113,8 +120,13 @@ module.exports = async (req, res) => {
       sign: ascSidereal !== null ? getZodiac(ascSidereal) : null
     };
 
+    setCORSHeaders(res);
     res.status(200).json({ date: date.toISOString(), ayanamsa, planets: positions });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    setCORSHeaders(res);
+    // Вывести ошибку в консоль Vercel для логов
+    console.error('ERROR:', e, e.stack);
+    // Вернуть ошибку и stack trace в ответе (для отладки)
+    res.status(500).json({ error: e.message, stack: e.stack });
   }
 };
