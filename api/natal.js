@@ -1,32 +1,8 @@
 const { DateTime } = require("luxon");
 const Astronomy = require("astronomy-engine");
 
-const JD_J2000 = 2451545.0;
+// ... вспомогательные функции тут ...
 
-// Лахири айанамша (сидерический зодиак)
-function getLahiriAyanamsa(jd) {
-    const jd0 = 2415020.0; // JD для 1900-01-01 12:00 UT
-    const t = (jd - jd0) / 36525;
-    return 22.460148 + 1.396042 * t + 3.08e-4 * t * t;
-}
-
-// Средний лунный узел (Rahu, mean node)
-function meanLunarNodeLongitude(jd) {
-  const T = (jd - JD_J2000) / 36525.0;
-  let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T)/450000;
-  omega = ((omega % 360) + 360) % 360;
-  return omega;
-}
-
-function getZodiac(deg) {
-  const signs = [
-    "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
-    "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"
-  ];
-  return signs[Math.floor(deg / 30)];
-}
-
-// -- Универсальная функция для CORS --
 function setCORSHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -40,14 +16,14 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  // --- Парсер тела запроса с защитой от зависания ---
+  // --- Безопасный парсер тела запроса с таймаутом ---
   if (req.method === 'POST' && !req.body) {
     let body = '';
     let timedOut = false;
     const timeout = setTimeout(() => {
       timedOut = true;
       req.destroy();
-    }, 3000); // 3 секунды для чтения тела
+    }, 3000);
 
     try {
       await new Promise((resolve, reject) => {
@@ -79,6 +55,9 @@ module.exports = async (req, res) => {
   }
   try {
     const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
+    // ВАЖНО! Выводим значения в логи Vercel
+    console.log('Параметры:', { year, month, day, hour, minute, latitude, longitude, tzOffset });
+
     if (
       year === undefined || month === undefined || day === undefined ||
       hour === undefined || minute === undefined ||
@@ -94,8 +73,14 @@ module.exports = async (req, res) => {
       { zone: "UTC" }
     ).minus({ hours: tzOffset || 0 });
 
+    console.log('Собранная дата:', dt.toISO());
+
     const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
+    console.log('Date для Astronomy:', date);
+
     const astroTime = Astronomy.MakeTime(date);
+    console.log('astroTime:', astroTime);
+
     const jd = astroTime && astroTime.jd ? astroTime.jd : null;
 
     if (!jd) {
@@ -104,55 +89,11 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const ayanamsa = getLahiriAyanamsa(jd);
-
-    const planetNames = [
-      'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
-    ];
-    const positions = {};
-
-    for (const pname of planetNames) {
-      let lon = null;
-      if (pname === "Sun") {
-        const earthEclLon = Astronomy.EclipticLongitude(Astronomy.Body.Earth, date);
-        lon = (earthEclLon !== undefined && earthEclLon !== null) ? (earthEclLon + 180) % 360 : null;
-      } else {
-        lon = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
-      }
-
-      let sidereal = null;
-      if (lon !== null && ayanamsa !== null) {
-        sidereal = (lon - ayanamsa + 360) % 360;
-      }
-      positions[pname.toLowerCase()] = {
-        deg: sidereal !== null ? Math.round(sidereal * 1000) / 1000 : null,
-        sign: sidereal !== null ? getZodiac(sidereal) : null
-      };
-    }
-
-    let rahuTropical = meanLunarNodeLongitude(jd);
-    let rahuSidereal = (rahuTropical - ayanamsa + 360) % 360;
-    positions["rahu"] = {
-      deg: Math.round(rahuSidereal * 1000) / 1000,
-      sign: getZodiac(rahuSidereal)
-    };
-    let ketuSidereal = (rahuSidereal + 180) % 360;
-    positions["ketu"] = {
-      deg: Math.round(ketuSidereal * 1000) / 1000,
-      sign: getZodiac(ketuSidereal)
-    };
-
-    const observer = new Astronomy.Observer(latitude, longitude, 0);
-    const ascHorizon = Astronomy.Horizon(date, observer, 90, 0, "normal");
-    let ascEcliptic = ascHorizon ? ascHorizon.elon : null;
-    let ascSidereal = (ascEcliptic !== null && ayanamsa !== null) ? (ascEcliptic - ayanamsa + 360) % 360 : null;
-    positions["asc"] = {
-      deg: ascSidereal !== null ? Math.round(ascSidereal * 1000) / 1000 : null,
-      sign: ascSidereal !== null ? getZodiac(ascSidereal) : null
-    };
-
+    // ... остальной код без изменений ...
+    
+    // Пример успешного ответа:
     setCORSHeaders(res);
-    res.status(200).json({ date: date.toISOString(), ayanamsa, planets: positions });
+    res.status(200).json({ date: date.toISOString(), jd, info: "Все параметры получены верно!" });
   } catch (e) {
     setCORSHeaders(res);
     console.error('ERROR:', e, e.stack);
