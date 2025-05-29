@@ -1,8 +1,35 @@
 const { DateTime } = require("luxon");
 const Astronomy = require("astronomy-engine");
 
-// ... вспомогательные функции тут ...
+// JD эпохи J2000
+const JD_J2000 = 2451545.0;
 
+// Лахири айанамша (сидерический зодиак)
+function getLahiriAyanamsa(jd) {
+    // Быстрая формула для Лахири айанамши (точность достаточна)
+    const t = (jd - 2451545.0) / 36525;
+    return 22.460148 + (1.396042 * t) + (3.08e-4 * t * t);
+}
+
+// Зодиакальный знак по градусам (0° = Овен)
+function getZodiac(deg) {
+  const signs = [
+    "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
+    "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"
+  ];
+  return signs[Math.floor((deg % 360) / 30)];
+}
+
+// Средний лунный узел (Раху, mean node)
+function meanLunarNodeLongitude(jd) {
+  // Формула упрощённая, для ведической астрологии подходит
+  const T = (jd - JD_J2000) / 36525.0;
+  let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T)/450000;
+  omega = ((omega % 360) + 360) % 360;
+  return omega;
+}
+
+// CORS
 function setCORSHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -55,8 +82,8 @@ module.exports = async (req, res) => {
   }
   try {
     const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
-    // ВАЖНО! Выводим значения в логи Vercel
-    console.log('Параметры:', { year, month, day, hour, minute, latitude, longitude, tzOffset });
+    // Лог для отладки (можно потом убрать)
+    // console.log('Параметры:', { year, month, day, hour, minute, latitude, longitude, tzOffset });
 
     if (
       year === undefined || month === undefined || day === undefined ||
@@ -68,20 +95,19 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // Переводим входную дату в UTC без смещения (tzOffset в часах, например, 3)
     const dt = DateTime.fromObject(
       { year, month, day, hour, minute },
       { zone: "UTC" }
     ).minus({ hours: tzOffset || 0 });
 
-    console.log('Собранная дата:', dt.toISO());
-
     const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
-    console.log('Date для Astronomy:', date);
 
+    // JD вычисляем правильно (astroTime.ut — в днях от J2000, прибавляем JD_J2000)
     const astroTime = Astronomy.MakeTime(date);
-    console.log('astroTime:', astroTime);
-
-    const jd = astroTime && astroTime.jd ? astroTime.jd : null;
+    const jd = astroTime && typeof astroTime.ut === 'number'
+      ? astroTime.ut + JD_J2000
+      : null;
 
     if (!jd) {
       setCORSHeaders(res);
@@ -89,11 +115,56 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // ... остальной код без изменений ...
-    
-    // Пример успешного ответа:
+    // Считаем айанамшу (Лахири)
+    const ayanamsa = getLahiriAyanamsa(jd);
+
+    // Планеты, которые считаем
+    const planetNames = [
+      'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
+    ];
+    const positions = {};
+
+    for (const pname of planetNames) {
+      // Эклиптическая долгота (тропическая)
+      let lon = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
+      // Сидерическая долгота (вычитаем айанамшу)
+      let sidereal = (lon - ayanamsa + 360) % 360;
+      positions[pname.toLowerCase()] = {
+        deg: Math.round(sidereal * 1000) / 1000,
+        sign: getZodiac(sidereal)
+      };
+    }
+
+    // Раху и Кету (сидерические координаты)
+    let rahuTropical = meanLunarNodeLongitude(jd);
+    let rahuSidereal = (rahuTropical - ayanamsa + 360) % 360;
+    positions["rahu"] = {
+      deg: Math.round(rahuSidereal * 1000) / 1000,
+      sign: getZodiac(rahuSidereal)
+    };
+    let ketuSidereal = (rahuSidereal + 180) % 360;
+    positions["ketu"] = {
+      deg: Math.round(ketuSidereal * 1000) / 1000,
+      sign: getZodiac(ketuSidereal)
+    };
+
+    // Асцендент (лагна)
+    const observer = new Astronomy.Observer(latitude, longitude, 0);
+    const ascHorizon = Astronomy.Horizon(date, observer, 90, 0, "normal");
+    let ascEcliptic = ascHorizon ? ascHorizon.elon : null;
+    let ascSidereal = (ascEcliptic !== null && ayanamsa !== null) ? (ascEcliptic - ayanamsa + 360) % 360 : null;
+    positions["asc"] = {
+      deg: ascSidereal !== null ? Math.round(ascSidereal * 1000) / 1000 : null,
+      sign: ascSidereal !== null ? getZodiac(ascSidereal) : null
+    };
+
     setCORSHeaders(res);
-    res.status(200).json({ date: date.toISOString(), jd, info: "Все параметры получены верно!" });
+    res.status(200).json({
+      date: date.toISOString(),
+      jd,
+      ayanamsa,
+      planets: positions
+    });
   } catch (e) {
     setCORSHeaders(res);
     console.error('ERROR:', e, e.stack);
