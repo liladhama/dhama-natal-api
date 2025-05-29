@@ -148,12 +148,18 @@ module.exports = async (req, res) => {
         // Асцендент (лагна)
         const observer = new Astronomy.Observer(latitude, longitude, 0);
         const ascHorizon = Astronomy.Horizon(date, observer, 90, 0, "normal");
-        let ascEcliptic = ascHorizon ? ascHorizon.elon : null;
+
+        let ascEcliptic = (ascHorizon && typeof ascHorizon.elon === "number") ? ascHorizon.elon : null;
         let ascSidereal = (ascEcliptic !== null && ayanamsa !== null) ? (ascEcliptic - ayanamsa + 360) % 360 : null;
         positions["asc"] = {
             deg: ascSidereal !== null ? Math.round(ascSidereal * 1000) / 1000 : null,
             sign: ascSidereal !== null ? getZodiac(ascSidereal) : null
         };
+
+        // Для отладки можно раскомментировать
+        // if (ascEcliptic === null) {
+        //     console.error("ASC calculation failed", { latitude, longitude, date: date.toISOString(), ascHorizon });
+        // }
 
         setCORSHeaders(res);
         res.status(200).json({
