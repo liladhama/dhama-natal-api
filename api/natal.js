@@ -21,7 +21,7 @@ function getZodiac(deg) {
 // Средний лунный узел (Раху, mean node)
 function meanLunarNodeLongitude(jd) {
     const T = (jd - JD_J2000) / 36525.0;
-    let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T)/450000;
+    let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T) / 450000;
     omega = ((omega % 360) + 360) % 360;
     return omega;
 }
@@ -77,6 +77,7 @@ module.exports = async (req, res) => {
         res.status(405).json({ error: "Method not allowed" });
         return;
     }
+
     try {
         const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
 
@@ -119,7 +120,11 @@ module.exports = async (req, res) => {
 
         for (const pname of planetNames) {
             let bodyEnum = Body[pname];
-            let lon = Astronomy.EclipticLongitude(bodyEnum, date);
+            // Получаем геоцентрический вектор планеты относительно Земли (J2000)
+            let vector = Astronomy.GeoVector(bodyEnum, date, true); // true = J2000
+            // Переводим в эклиптические координаты
+            let ecl = Astronomy.Ecliptic(vector);
+            let lon = ecl.elon;
             let sidereal = (lon - ayanamsa + 360) % 360;
             positions[pname.toLowerCase()] = {
                 deg: Math.round(sidereal * 1000) / 1000,
