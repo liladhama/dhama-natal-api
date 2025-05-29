@@ -116,7 +116,7 @@ module.exports = async (req, res) => {
     ];
     const positions = {};
 
-    // Считаем долготы всех планет
+    // ВАЖНО: для всех тел, включая Sun, используем только Astronomy.Body[pname], не Earth!
     for (const pname of planetNames) {
       let lon = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
       let sidereal = (lon - ayanamsa + 360) % 360;
