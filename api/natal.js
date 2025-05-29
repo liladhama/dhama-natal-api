@@ -1,17 +1,14 @@
 const { DateTime } = require("luxon");
 const Astronomy = require("astronomy-engine");
 
-// JD эпохи J2000
 const JD_J2000 = 2451545.0;
 
 // Лахири айанамша (сидерический зодиак)
 function getLahiriAyanamsa(jd) {
-    // Быстрая формула для Лахири айанамши (точность достаточна)
-    const t = (jd - 2451545.0) / 36525;
-    return 22.460148 + (1.396042 * t) + (3.08e-4 * t * t);
+    const t = (jd - JD_J2000) / 36525;
+    return 22.460148 + 1.396042 * t + 3.08e-4 * t * t;
 }
 
-// Зодиакальный знак по градусам (0° = Овен)
 function getZodiac(deg) {
   const signs = [
     "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
@@ -22,7 +19,6 @@ function getZodiac(deg) {
 
 // Средний лунный узел (Раху, mean node)
 function meanLunarNodeLongitude(jd) {
-  // Формула упрощённая, для ведической астрологии подходит
   const T = (jd - JD_J2000) / 36525.0;
   let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T)/450000;
   omega = ((omega % 360) + 360) % 360;
@@ -82,8 +78,6 @@ module.exports = async (req, res) => {
   }
   try {
     const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
-    // Лог для отладки (можно потом убрать)
-    // console.log('Параметры:', { year, month, day, hour, minute, latitude, longitude, tzOffset });
 
     if (
       year === undefined || month === undefined || day === undefined ||
@@ -95,7 +89,6 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // Переводим входную дату в UTC без смещения (tzOffset в часах, например, 3)
     const dt = DateTime.fromObject(
       { year, month, day, hour, minute },
       { zone: "UTC" }
@@ -103,7 +96,6 @@ module.exports = async (req, res) => {
 
     const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
 
-    // JD вычисляем правильно (astroTime.ut — в днях от J2000, прибавляем JD_J2000)
     const astroTime = Astronomy.MakeTime(date);
     const jd = astroTime && typeof astroTime.ut === 'number'
       ? astroTime.ut + JD_J2000
@@ -115,19 +107,16 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // Считаем айанамшу (Лахири)
     const ayanamsa = getLahiriAyanamsa(jd);
 
-    // Планеты, которые считаем
     const planetNames = [
       'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
     ];
     const positions = {};
 
     for (const pname of planetNames) {
-      // Эклиптическая долгота (тропическая)
+      // Ключ: просто геоцентрическая эклиптическая долгота
       let lon = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
-      // Сидерическая долгота (вычитаем айанамшу)
       let sidereal = (lon - ayanamsa + 360) % 360;
       positions[pname.toLowerCase()] = {
         deg: Math.round(sidereal * 1000) / 1000,
