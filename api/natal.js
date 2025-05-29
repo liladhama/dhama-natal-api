@@ -89,6 +89,7 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // Переводим дату в UTC без смещения (tzOffset - в часах)
     const dt = DateTime.fromObject(
       { year, month, day, hour, minute },
       { zone: "UTC" }
@@ -109,13 +110,14 @@ module.exports = async (req, res) => {
 
     const ayanamsa = getLahiriAyanamsa(jd);
 
+    // Только классические ведические планеты
     const planetNames = [
       'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
     ];
     const positions = {};
 
+    // Считаем долготы всех планет
     for (const pname of planetNames) {
-      // ВАЖНО! Для всех планет, включая Sun, только так:
       let lon = Astronomy.EclipticLongitude(Astronomy.Body[pname], date);
       let sidereal = (lon - ayanamsa + 360) % 360;
       positions[pname.toLowerCase()] = {
