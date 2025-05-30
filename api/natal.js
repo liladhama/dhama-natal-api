@@ -19,6 +19,12 @@ function getDegreeInSign(deg) {
     // Градус внутри знака (0-30) с округлением до тысячных
     return Math.round((deg % 30) * 1000) / 1000;
 }
+function getDegreeInSignStr(deg) {
+    // Вернуть строку в виде "X°YY'", например "7°27'"
+    const d = Math.floor(deg % 30);
+    const m = Math.round(((deg % 30) - d) * 60);
+    return `${d}°${m < 10 ? "0" : ""}${m}'`;
+}
 function meanLunarNodeLongitude(jd) {
     const T = (jd - JD_J2000) / 36525.0;
     let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T) / 450000;
@@ -140,18 +146,11 @@ module.exports = async (req, res) => {
                 positions[pname.toLowerCase()] = {
                     deg: Math.round(sidereal * 1000) / 1000,
                     sign: getZodiac(sidereal),
-                    deg_in_sign: getDegreeInSign(sidereal)
+                    deg_in_sign: getDegreeInSign(sidereal),
+                    deg_in_sign_str: getDegreeInSignStr(sidereal)
                 };
-                // Логирование результата для каждой планеты
-                console.log(`${pname}:`, {
-                    geoVector: vector,
-                    ecliptic: ecl,
-                    longitude: lon,
-                    sidereal
-                });
             } catch (err) {
-                console.error(`Ошибка при расчёте ${pname}:`, err);
-                positions[pname.toLowerCase()] = { deg: null, sign: null, deg_in_sign: null, error: err.message };
+                positions[pname.toLowerCase()] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
             }
         }
 
@@ -160,13 +159,15 @@ module.exports = async (req, res) => {
         positions["rahu"] = {
             deg: Math.round(rahuSidereal * 1000) / 1000,
             sign: getZodiac(rahuSidereal),
-            deg_in_sign: getDegreeInSign(rahuSidereal)
+            deg_in_sign: getDegreeInSign(rahuSidereal),
+            deg_in_sign_str: getDegreeInSignStr(rahuSidereal)
         };
         let ketuSidereal = (rahuSidereal + 180) % 360;
         positions["ketu"] = {
             deg: Math.round(ketuSidereal * 1000) / 1000,
             sign: getZodiac(ketuSidereal),
-            deg_in_sign: getDegreeInSign(ketuSidereal)
+            deg_in_sign: getDegreeInSign(ketuSidereal),
+            deg_in_sign_str: getDegreeInSignStr(ketuSidereal)
         };
 
         // Асцендент (лагна) — корректный расчёт
@@ -178,15 +179,15 @@ module.exports = async (req, res) => {
             const eq = Astronomy.Horizon(date, observer, azimuth, altitude, "normal");
             ascEcliptic = eclipticLongitude(eq.ra, eq.dec, date);
             ascSidereal = (ascEcliptic - ayanamsa + 360) % 360;
-            console.log('ASC calc:', { ra: eq.ra, dec: eq.dec, ascEcliptic, ayanamsa, ascSidereal });
         } catch (e) {
-            console.error('ASC calc error:', e);
+            // ignore
         }
 
         positions["asc"] = {
             deg: ascSidereal !== null ? Math.round(ascSidereal * 1000) / 1000 : null,
             sign: ascSidereal !== null ? getZodiac(ascSidereal) : null,
-            deg_in_sign: ascSidereal !== null ? getDegreeInSign(ascSidereal) : null
+            deg_in_sign: ascSidereal !== null ? getDegreeInSign(ascSidereal) : null,
+            deg_in_sign_str: ascSidereal !== null ? getDegreeInSignStr(ascSidereal) : null
         };
 
         setCORSHeaders(res);
@@ -198,7 +199,6 @@ module.exports = async (req, res) => {
         });
     } catch (e) {
         setCORSHeaders(res);
-        console.error('ERROR:', e, e.stack);
         res.status(500).json({ error: e.message, stack: e.stack });
     }
 };
