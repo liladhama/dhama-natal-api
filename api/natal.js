@@ -38,7 +38,6 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // Логируем тело запроса для отладки
         console.log("natal.js: req.body =", req.body);
 
         const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
@@ -74,10 +73,14 @@ module.exports = async (req, res) => {
         }
         console.log("natal.js: JD =", jd);
 
-        // ======= ВЕДИЧЕСКИЙ АЯНАМША С ПОМОЩЬЮ swisseph =======
+        // Устанавливаем сидерический режим
+        swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0);
+
+        // Получаем ayanamsa из любого расчёта планеты (например, Солнце)
         let ayanamsa = null;
         try {
-            ayanamsa = swe.get_ayanamsa_ut_sync(jd);
+            const sun = await swe.calc_ut(jd, swe.SUN, swe.FLAG_SIDEREAL);
+            ayanamsa = sun.ayanamsa;
             console.log("natal.js: ayanamsa =", ayanamsa);
         } catch (e) {
             console.error("natal.js: ayanamsa error =", e);
