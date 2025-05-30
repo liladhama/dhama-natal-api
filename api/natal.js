@@ -1,9 +1,8 @@
 const { DateTime } = require("luxon");
 const swe = require("swisseph");
 const path = require("path");
-const Astronomy = require("astronomy-engine");
 
-// Указываем путь к эфемеридам
+// Указываем путь к эфемеридам (если natal.js лежит в api/, а ephe — в корне!)
 swe.set_ephe_path(path.join(__dirname, '../ephe'));
 
 function getZodiac(deg) {
@@ -87,16 +86,9 @@ module.exports = async (req, res) => {
         ).minus({ hours: tzOffset || 0 });
 
         const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
-        const JD_J2000 = 2451545.0;
-        const astroTime = Astronomy.MakeTime(date);
-        const jd = astroTime && typeof astroTime.ut === 'number'
-            ? astroTime.ut + JD_J2000
-            : null;
-
-        if (!jd) {
-            res.status(500).json({ error: "JD (Julian Day) calculation failed" });
-            return;
-        }
+        // Вычисляем юлианский день (JD)
+        // JD = (ms since 1970-01-01 00:00 UTC) / 86400000 + 2440587.5
+        const jd = date.getTime() / 86400000 + 2440587.5;
 
         // Получаем айанамшу
         let ayanamsa = null;
