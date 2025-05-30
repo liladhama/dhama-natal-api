@@ -6,14 +6,17 @@
     "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["vedic", "astrology", "swisseph", "natal", "api"],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "REST API for vedic natal chart calculations using swisseph",
   "dependencies": {
     "astronomia": "^4.1.1",
     "astronomy-engine": "^2.1.19",
     "luxon": "^3.6.1",
     "swisseph": "^0.5.17"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
