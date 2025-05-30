@@ -6,11 +6,8 @@ const Body = Astronomy.Body;
 const JD_J2000 = 2451545.0;
 
 // Используем swisseph для точной Лахири айанамши (ведическое стандартное)
-// Meeus больше не используется, только swisseph!
-// Но если swisseph не сработает — можно оставить функцию как fallback
-
 function getLahiriAyanamsa(jd) {
-    return swe.get_ayanamsa_ut_sync(jd); // синхронно, чтобы не трогать структуру кода
+    return swe.get_ayanamsa_ut_sync(jd);
 }
 
 function getZodiac(deg) {
@@ -34,8 +31,10 @@ function meanLunarNodeLongitude(jd) {
     omega = ((omega % 360) + 360) % 360;
     return omega;
 }
+
+// ВАЖНО: Разрешаем CORS только для нужного домена!
 function setCORSHeaders(res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', 'https://dhama-sage.vercel.app');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
@@ -58,8 +57,10 @@ function eclipticLongitude(ra, dec, date) {
 module.exports = async (req, res) => {
     setCORSHeaders(res);
 
+    // Явная обработка preflight-запроса
     if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+        setCORSHeaders(res);
+        return res.status(204).end();
     }
 
     // Безопасный парсер тела запроса с таймаутом
@@ -133,8 +134,8 @@ module.exports = async (req, res) => {
         }
 
         // ======= ВЕДИЧЕСКИЙ АЯНАМША С ПОМОЩЬЮ swisseph =======
-        swe.set_ephe_path(__dirname); // путь к эфемеридам, если они есть локально
-        swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0); // ставим Лахири — ведическая классика!
+        swe.set_ephe_path(__dirname);
+        swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0);
         const ayanamsa = swe.get_ayanamsa_ut_sync(jd);
 
         const planetNames = [
@@ -145,7 +146,6 @@ module.exports = async (req, res) => {
         for (const pname of planetNames) {
             let siderealLon = null;
             try {
-                // swisseph: получить сидерическую долготу планеты
                 const resSw = swe.calc_ut_sync(jd, swe[pname.toUpperCase()], swe.FLAG_SIDEREAL);
                 siderealLon = (resSw.longitude + 360) % 360;
                 positions[pname.toLowerCase()] = {
@@ -159,7 +159,7 @@ module.exports = async (req, res) => {
             }
         }
 
-        // Раху и Кету по swisseph (верно для ведик)
+        // Раху и Кету по swisseph
         try {
             const rahuRes = swe.calc_ut_sync(jd, swe.MEAN_NODE, swe.FLAG_SIDEREAL);
             const rahuSidereal = (rahuRes.longitude + 360) % 360;
@@ -181,10 +181,9 @@ module.exports = async (req, res) => {
             positions["ketu"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
         }
 
-        // Асцендент (лагна) — лучше swisseph-ом, но если нет, то старым методом
+        // Асцендент (лагна)
         let ascSidereal = null;
         try {
-            // swisseph: Ascendant (house cusp 1)
             const ascRes = swe.houses_ex_sync(jd, latitude, longitude, 'P', swe.FLAG_SIDEREAL);
             ascSidereal = (ascRes.ascendant + 360) % 360;
             positions["asc"] = {
