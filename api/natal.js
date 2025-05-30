@@ -38,6 +38,7 @@ module.exports = async (req, res) => {
     }
 
     try {
+        console.log("swe exports", Object.keys(swe)); // <-- Дай вывод из Render логов!
         console.log("natal.js: req.body =", req.body);
 
         const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
@@ -73,21 +74,7 @@ module.exports = async (req, res) => {
         }
         console.log("natal.js: JD =", jd);
 
-        // Устанавливаем сидерический режим
-        swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0);
-
-        // Получаем ayanamsa из любого расчёта планеты (например, Солнце)
-        let ayanamsa = null;
-        try {
-            const sun = await swe.calc_ut(jd, swe.SUN, swe.FLAG_SIDEREAL);
-            ayanamsa = sun.ayanamsa;
-            console.log("natal.js: ayanamsa =", ayanamsa);
-        } catch (e) {
-            console.error("natal.js: ayanamsa error =", e);
-            res.status(500).json({ error: "Ayanamsa calculation failed", stack: e.stack });
-            return;
-        }
-
+        // ======= ТРОПИЧЕСКИЕ ДОЛГОТЫ ПЛАНЕТ =======
         const planetNames = [
             'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
         ];
@@ -95,13 +82,13 @@ module.exports = async (req, res) => {
 
         for (const pname of planetNames) {
             try {
-                const resSw = await swe.calc_ut(jd, swe[pname.toUpperCase()], swe.FLAG_SIDEREAL);
-                const siderealLon = (resSw.longitude + 360) % 360;
+                const resSw = await swe.calc_ut(jd, swe[pname.toUpperCase()], 0);
+                const lon = (resSw.longitude + 360) % 360;
                 positions[pname.toLowerCase()] = {
-                    deg: Math.round(siderealLon * 1000) / 1000,
-                    sign: getZodiac(siderealLon),
-                    deg_in_sign: getDegreeInSign(siderealLon),
-                    deg_in_sign_str: getDegreeInSignStr(siderealLon)
+                    deg: Math.round(lon * 1000) / 1000,
+                    sign: getZodiac(lon),
+                    deg_in_sign: getDegreeInSign(lon),
+                    deg_in_sign_str: getDegreeInSignStr(lon)
                 };
             } catch (err) {
                 console.error(`natal.js: ${pname} error =`, err);
@@ -111,20 +98,20 @@ module.exports = async (req, res) => {
 
         // Раху и Кету по swisseph
         try {
-            const rahuRes = await swe.calc_ut(jd, swe.MEAN_NODE, swe.FLAG_SIDEREAL);
-            const rahuSidereal = (rahuRes.longitude + 360) % 360;
+            const rahuRes = await swe.calc_ut(jd, swe.MEAN_NODE, 0);
+            const rahuLon = (rahuRes.longitude + 360) % 360;
             positions["rahu"] = {
-                deg: Math.round(rahuSidereal * 1000) / 1000,
-                sign: getZodiac(rahuSidereal),
-                deg_in_sign: getDegreeInSign(rahuSidereal),
-                deg_in_sign_str: getDegreeInSignStr(rahuSidereal)
+                deg: Math.round(rahuLon * 1000) / 1000,
+                sign: getZodiac(rahuLon),
+                deg_in_sign: getDegreeInSign(rahuLon),
+                deg_in_sign_str: getDegreeInSignStr(rahuLon)
             };
-            const ketuSidereal = (rahuSidereal + 180) % 360;
+            const ketuLon = (rahuLon + 180) % 360;
             positions["ketu"] = {
-                deg: Math.round(ketuSidereal * 1000) / 1000,
-                sign: getZodiac(ketuSidereal),
-                deg_in_sign: getDegreeInSign(ketuSidereal),
-                deg_in_sign_str: getDegreeInSignStr(ketuSidereal)
+                deg: Math.round(ketuLon * 1000) / 1000,
+                sign: getZodiac(ketuLon),
+                deg_in_sign: getDegreeInSign(ketuLon),
+                deg_in_sign_str: getDegreeInSignStr(ketuLon)
             };
         } catch (err) {
             console.error("natal.js: Rahu/Ketu error =", err);
@@ -132,15 +119,15 @@ module.exports = async (req, res) => {
             positions["ketu"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
         }
 
-        // Асцендент (лагна)
+        // Асцендент (лагна) — тоже тропический
         try {
-            const ascRes = await swe.houses_ex(jd, latitude, longitude, 'P', swe.FLAG_SIDEREAL);
-            const ascSidereal = (ascRes.ascendant + 360) % 360;
+            const ascRes = await swe.houses(jd, latitude, longitude, 'P');
+            const ascLon = (ascRes.ascendant + 360) % 360;
             positions["asc"] = {
-                deg: Math.round(ascSidereal * 1000) / 1000,
-                sign: getZodiac(ascSidereal),
-                deg_in_sign: getDegreeInSign(ascSidereal),
-                deg_in_sign_str: getDegreeInSignStr(ascSidereal)
+                deg: Math.round(ascLon * 1000) / 1000,
+                sign: getZodiac(ascLon),
+                deg_in_sign: getDegreeInSign(ascLon),
+                deg_in_sign_str: getDegreeInSignStr(ascLon)
             };
         } catch (e) {
             console.error("natal.js: asc error =", e);
@@ -152,7 +139,6 @@ module.exports = async (req, res) => {
         res.status(200).json({
             date: date.toISOString(),
             jd,
-            ayanamsa,
             planets: positions
         });
     } catch (e) {
