@@ -20,7 +20,6 @@ function getDegreeInSignStr(deg) {
     return `${d}°${m < 10 ? "0" : ""}${m}'`;
 }
 
-// ВАЖНО: Разрешаем CORS только для нужного домена!
 function setCORSHeaders(res) {
     res.setHeader('Access-Control-Allow-Origin', 'https://dhama-sage.vercel.app');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -30,7 +29,6 @@ function setCORSHeaders(res) {
 module.exports = async (req, res) => {
     setCORSHeaders(res);
 
-    // Preflight запрос
     if (req.method === 'OPTIONS') {
         return res.status(204).end();
     }
@@ -50,6 +48,7 @@ module.exports = async (req, res) => {
             hour === undefined || minute === undefined ||
             latitude === undefined || longitude === undefined
         ) {
+            console.error("natal.js: error = Missing parameters");
             res.status(400).json({ error: "Missing parameters" });
             return;
         }
@@ -61,6 +60,7 @@ module.exports = async (req, res) => {
         ).minus({ hours: tzOffset || 0 });
 
         const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
+        console.log("natal.js: Calculated date =", date);
 
         const astroTime = Astronomy.MakeTime(date);
         const jd = astroTime && typeof astroTime.ut === 'number'
@@ -68,15 +68,20 @@ module.exports = async (req, res) => {
             : null;
 
         if (!jd) {
+            console.error("natal.js: error = JD (Julian Day) calculation failed");
             res.status(500).json({ error: "JD (Julian Day) calculation failed" });
             return;
         }
+        console.log("natal.js: JD =", jd);
 
         // ======= ВЕДИЧЕСКИЙ АЯНАМША С ПОМОЩЬЮ swisseph =======
         let ayanamsa = null;
         try {
-            ayanamsa = (await swe.get_ayanamsa_ut(jd)).ayanamsa;
+            const ayanamsaRes = await swe.get_ayanamsa_ut(jd);
+            ayanamsa = ayanamsaRes.ayanamsa;
+            console.log("natal.js: ayanamsa =", ayanamsa);
         } catch (e) {
+            console.error("natal.js: ayanamsa error =", e);
             res.status(500).json({ error: "Ayanamsa calculation failed", stack: e.stack });
             return;
         }
@@ -87,10 +92,9 @@ module.exports = async (req, res) => {
         const positions = {};
 
         for (const pname of planetNames) {
-            let siderealLon = null;
             try {
                 const resSw = await swe.calc_ut(jd, swe[pname.toUpperCase()], swe.FLAG_SIDEREAL);
-                siderealLon = (resSw.longitude + 360) % 360;
+                const siderealLon = (resSw.longitude + 360) % 360;
                 positions[pname.toLowerCase()] = {
                     deg: Math.round(siderealLon * 1000) / 1000,
                     sign: getZodiac(siderealLon),
@@ -98,6 +102,7 @@ module.exports = async (req, res) => {
                     deg_in_sign_str: getDegreeInSignStr(siderealLon)
                 };
             } catch (err) {
+                console.error(`natal.js: ${pname} error =`, err);
                 positions[pname.toLowerCase()] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
             }
         }
@@ -120,6 +125,7 @@ module.exports = async (req, res) => {
                 deg_in_sign_str: getDegreeInSignStr(ketuSidereal)
             };
         } catch (err) {
+            console.error("natal.js: Rahu/Ketu error =", err);
             positions["rahu"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
             positions["ketu"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
         }
@@ -135,8 +141,11 @@ module.exports = async (req, res) => {
                 deg_in_sign_str: getDegreeInSignStr(ascSidereal)
             };
         } catch (e) {
+            console.error("natal.js: asc error =", e);
             positions["asc"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: e.message };
         }
+
+        console.log("natal.js: finished positions", positions);
 
         res.status(200).json({
             date: date.toISOString(),
