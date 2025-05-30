@@ -13,6 +13,7 @@
   "dependencies": {
     "astronomia": "^4.1.1",
     "astronomy-engine": "^2.1.19",
-    "luxon": "^3.6.1"
+    "luxon": "^3.6.1",
+    "swisseph": "^0.5.17"
   }
 }
