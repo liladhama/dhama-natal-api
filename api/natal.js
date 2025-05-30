@@ -1,8 +1,10 @@
 const { DateTime } = require("luxon");
 const swe = require("swisseph");
+const path = require("path");
 const Astronomy = require("astronomy-engine");
 
-const JD_J2000 = 2451545.0;
+// Указываем путь к эфемеридам
+swe.set_ephe_path(path.join(__dirname, '../ephe'));
 
 function getZodiac(deg) {
     const signs = [
@@ -26,21 +28,47 @@ function setCORSHeaders(res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
+// Promise-обёртка для swisseph calc_ut
+function calcUtAsync(jd, planet, flags) {
+    return new Promise((resolve, reject) => {
+        swe.calc_ut(jd, planet, flags, (res) => {
+            if (res.error) reject(new Error(res.error));
+            else resolve(res);
+        });
+    });
+}
+
+// Promise-обёртка для swisseph houses
+function housesAsync(jd, lat, lon, hsys) {
+    return new Promise((resolve, reject) => {
+        swe.houses(jd, lat, lon, hsys, (res) => {
+            if (res.error) reject(new Error(res.error));
+            else resolve(res);
+        });
+    });
+}
+
+// Promise-обёртка для swisseph get_ayanamsa
+function ayanamsaAsync(jd) {
+    return new Promise((resolve, reject) => {
+        swe.get_ayanamsa(jd, (res) => {
+            if (res.error) reject(new Error(res.error));
+            else resolve(res.ayanamsa);
+        });
+    });
+}
+
 module.exports = async (req, res) => {
     setCORSHeaders(res);
 
     if (req.method === 'OPTIONS') {
         return res.status(204).end();
     }
-
     if (req.method !== "POST") {
         return res.status(405).json({ error: "Method not allowed" });
     }
 
     try {
-        console.log("swe exports", Object.keys(swe)); // <-- Дай вывод из Render логов!
-        console.log("natal.js: req.body =", req.body);
-
         const { year, month, day, hour, minute, latitude, longitude, tzOffset } = req.body || {};
 
         if (
@@ -48,7 +76,6 @@ module.exports = async (req, res) => {
             hour === undefined || minute === undefined ||
             latitude === undefined || longitude === undefined
         ) {
-            console.error("natal.js: error = Missing parameters");
             res.status(400).json({ error: "Missing parameters" });
             return;
         }
@@ -60,89 +87,95 @@ module.exports = async (req, res) => {
         ).minus({ hours: tzOffset || 0 });
 
         const date = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, dt.hour, dt.minute));
-        console.log("natal.js: Calculated date =", date);
-
+        const JD_J2000 = 2451545.0;
         const astroTime = Astronomy.MakeTime(date);
         const jd = astroTime && typeof astroTime.ut === 'number'
             ? astroTime.ut + JD_J2000
             : null;
 
         if (!jd) {
-            console.error("natal.js: error = JD (Julian Day) calculation failed");
             res.status(500).json({ error: "JD (Julian Day) calculation failed" });
             return;
         }
-        console.log("natal.js: JD =", jd);
 
-        // ======= ТРОПИЧЕСКИЕ ДОЛГОТЫ ПЛАНЕТ =======
+        // Получаем айанамшу
+        let ayanamsa = null;
+        try {
+            ayanamsa = await ayanamsaAsync(jd);
+        } catch (e) {
+            res.status(500).json({ error: "Ayanamsa calculation failed", stack: e.stack });
+            return;
+        }
+
         const planetNames = [
-            'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
+            { key: 'sun', val: swe.SUN },
+            { key: 'moon', val: swe.MOON },
+            { key: 'mercury', val: swe.MERCURY },
+            { key: 'venus', val: swe.VENUS },
+            { key: 'mars', val: swe.MARS },
+            { key: 'jupiter', val: swe.JUPITER },
+            { key: 'saturn', val: swe.SATURN }
         ];
         const positions = {};
 
-        for (const pname of planetNames) {
+        for (const { key, val } of planetNames) {
             try {
-                const resSw = await swe.calc_ut(jd, swe[pname.toUpperCase()], 0);
-                const lon = (resSw.longitude + 360) % 360;
-                positions[pname.toLowerCase()] = {
-                    deg: Math.round(lon * 1000) / 1000,
-                    sign: getZodiac(lon),
-                    deg_in_sign: getDegreeInSign(lon),
-                    deg_in_sign_str: getDegreeInSignStr(lon)
+                const resSw = await calcUtAsync(jd, val, swe.FLAG_SIDEREAL);
+                const siderealLon = (resSw.longitude + 360) % 360;
+                positions[key] = {
+                    deg: Math.round(siderealLon * 1000) / 1000,
+                    sign: getZodiac(siderealLon),
+                    deg_in_sign: getDegreeInSign(siderealLon),
+                    deg_in_sign_str: getDegreeInSignStr(siderealLon)
                 };
             } catch (err) {
-                console.error(`natal.js: ${pname} error =`, err);
-                positions[pname.toLowerCase()] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
+                positions[key] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
             }
         }
 
-        // Раху и Кету по swisseph
+        // Раху и Кету
         try {
-            const rahuRes = await swe.calc_ut(jd, swe.MEAN_NODE, 0);
-            const rahuLon = (rahuRes.longitude + 360) % 360;
+            const rahuRes = await calcUtAsync(jd, swe.MEAN_NODE, swe.FLAG_SIDEREAL);
+            const rahuSidereal = (rahuRes.longitude + 360) % 360;
             positions["rahu"] = {
-                deg: Math.round(rahuLon * 1000) / 1000,
-                sign: getZodiac(rahuLon),
-                deg_in_sign: getDegreeInSign(rahuLon),
-                deg_in_sign_str: getDegreeInSignStr(rahuLon)
+                deg: Math.round(rahuSidereal * 1000) / 1000,
+                sign: getZodiac(rahuSidereal),
+                deg_in_sign: getDegreeInSign(rahuSidereal),
+                deg_in_sign_str: getDegreeInSignStr(rahuSidereal)
             };
-            const ketuLon = (rahuLon + 180) % 360;
+            const ketuSidereal = (rahuSidereal + 180) % 360;
             positions["ketu"] = {
-                deg: Math.round(ketuLon * 1000) / 1000,
-                sign: getZodiac(ketuLon),
-                deg_in_sign: getDegreeInSign(ketuLon),
-                deg_in_sign_str: getDegreeInSignStr(ketuLon)
+                deg: Math.round(ketuSidereal * 1000) / 1000,
+                sign: getZodiac(ketuSidereal),
+                deg_in_sign: getDegreeInSign(ketuSidereal),
+                deg_in_sign_str: getDegreeInSignStr(ketuSidereal)
             };
         } catch (err) {
-            console.error("natal.js: Rahu/Ketu error =", err);
             positions["rahu"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
             positions["ketu"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
         }
 
-        // Асцендент (лагна) — тоже тропический
+        // Асцендент (лагна)
         try {
-            const ascRes = await swe.houses(jd, latitude, longitude, 'P');
-            const ascLon = (ascRes.ascendant + 360) % 360;
+            const ascRes = await housesAsync(jd, latitude, longitude, 'P');
+            const ascSidereal = (ascRes.ascendant + 360) % 360;
             positions["asc"] = {
-                deg: Math.round(ascLon * 1000) / 1000,
-                sign: getZodiac(ascLon),
-                deg_in_sign: getDegreeInSign(ascLon),
-                deg_in_sign_str: getDegreeInSignStr(ascLon)
+                deg: Math.round(ascSidereal * 1000) / 1000,
+                sign: getZodiac(ascSidereal),
+                deg_in_sign: getDegreeInSign(ascSidereal),
+                deg_in_sign_str: getDegreeInSignStr(ascSidereal)
             };
         } catch (e) {
-            console.error("natal.js: asc error =", e);
             positions["asc"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: e.message };
         }
-
-        console.log("natal.js: finished positions", positions);
 
         res.status(200).json({
             date: date.toISOString(),
             jd,
+            ayanamsa,
             planets: positions
         });
     } catch (e) {
-        console.error("natal.js: error =", e);
         res.status(500).json({ error: e.message, stack: e.stack });
     }
 };
