@@ -20,21 +20,10 @@ function getDegreeInSignStr(deg) {
     return `${d}°${m < 10 ? "0" : ""}${m}'`;
 }
 
-// ВАЖНО: Разрешаем CORS только для нужного домена!
 function setCORSHeaders(res) {
     res.setHeader('Access-Control-Allow-Origin', 'https://dhama-sage.vercel.app');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
-
-// Обёртка для получения айанамши (ayanamsa) с колбеком
-function getAyanamsaAsync(jd) {
-    return new Promise((resolve, reject) => {
-        swe.get_ayanamsa(jd, (res) => {
-            if (res.error) reject(new Error(res.error));
-            else resolve(res.ayanamsa);
-        });
-    });
 }
 
 module.exports = async (req, res) => {
@@ -88,7 +77,7 @@ module.exports = async (req, res) => {
         // ======= ВЕДИЧЕСКИЙ АЯНАМША С ПОМОЩЬЮ swisseph =======
         let ayanamsa = null;
         try {
-            ayanamsa = await getAyanamsaAsync(jd);
+            ayanamsa = swe.get_ayanamsa_ut_sync(jd);
             console.log("natal.js: ayanamsa =", ayanamsa);
         } catch (e) {
             console.error("natal.js: ayanamsa error =", e);
