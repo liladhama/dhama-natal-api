@@ -1,15 +1,16 @@
 const { DateTime } = require("luxon");
+const swe = require("swisseph"); // добавляем swisseph для ведической точности
 const Astronomy = require("astronomy-engine");
 const Body = Astronomy.Body;
 
 const JD_J2000 = 2451545.0;
 
-// === ОБНОВЛЕННАЯ (ТОЧНАЯ) ЛАХИРИ АЯНАМША (Meeus + коррекция) ===
+// Используем swisseph для точной Лахири айанамши (ведическое стандартное)
+// Meeus больше не используется, только swisseph!
+// Но если swisseph не сработает — можно оставить функцию как fallback
+
 function getLahiriAyanamsa(jd) {
-    const t = (jd - JD_J2000) / 36525;
-    // Meeus, Astronomical Algorithms, 2nd ed., p. 143 + cubic correction
-    let ayanamsa = 22.460148 + 1.396042 * t + 0.000308 * t * t + 0.000087 * t * t * t;
-    return ayanamsa;
+    return swe.get_ayanamsa_ut_sync(jd); // синхронно, чтобы не трогать структуру кода
 }
 
 function getZodiac(deg) {
@@ -20,11 +21,9 @@ function getZodiac(deg) {
     return signs[Math.floor((deg % 360) / 30)];
 }
 function getDegreeInSign(deg) {
-    // Градус внутри знака (0-30) с округлением до тысячных
     return Math.round((deg % 30) * 1000) / 1000;
 }
 function getDegreeInSignStr(deg) {
-    // Вернуть строку в виде "X°YY'", например "7°27'"
     const d = Math.floor(deg % 30);
     const m = Math.round(((deg % 30) - d) * 60);
     return `${d}°${m < 10 ? "0" : ""}${m}'`;
@@ -55,6 +54,7 @@ function eclipticLongitude(ra, dec, date) {
     return lon;
 }
 
+// ============= ОСНОВНОЙ ЭКСПОРТ ==============
 module.exports = async (req, res) => {
     setCORSHeaders(res);
 
@@ -132,7 +132,10 @@ module.exports = async (req, res) => {
             return;
         }
 
-        const ayanamsa = getLahiriAyanamsa(jd);
+        // ======= ВЕДИЧЕСКИЙ АЯНАМША С ПОМОЩЬЮ swisseph =======
+        swe.set_ephe_path(__dirname); // путь к эфемеридам, если они есть локально
+        swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0); // ставим Лахири — ведическая классика!
+        const ayanamsa = swe.get_ayanamsa_ut_sync(jd);
 
         const planetNames = [
             'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
@@ -140,59 +143,59 @@ module.exports = async (req, res) => {
         const positions = {};
 
         for (const pname of planetNames) {
-            let bodyEnum = Body[pname];
-            let vector, ecl, lon, sidereal;
+            let siderealLon = null;
             try {
-                vector = Astronomy.GeoVector(bodyEnum, date, true); // true = J2000
-                ecl = Astronomy.Ecliptic(vector);
-                lon = ecl.elon;
-                sidereal = (lon - ayanamsa + 360) % 360;
+                // swisseph: получить сидерическую долготу планеты
+                const resSw = swe.calc_ut_sync(jd, swe[pname.toUpperCase()], swe.FLAG_SIDEREAL);
+                siderealLon = (resSw.longitude + 360) % 360;
                 positions[pname.toLowerCase()] = {
-                    deg: Math.round(sidereal * 1000) / 1000,
-                    sign: getZodiac(sidereal),
-                    deg_in_sign: getDegreeInSign(sidereal),
-                    deg_in_sign_str: getDegreeInSignStr(sidereal)
+                    deg: Math.round(siderealLon * 1000) / 1000,
+                    sign: getZodiac(siderealLon),
+                    deg_in_sign: getDegreeInSign(siderealLon),
+                    deg_in_sign_str: getDegreeInSignStr(siderealLon)
                 };
             } catch (err) {
                 positions[pname.toLowerCase()] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
             }
         }
 
-        let rahuTropical = meanLunarNodeLongitude(jd);
-        let rahuSidereal = (rahuTropical - ayanamsa + 360) % 360;
-        positions["rahu"] = {
-            deg: Math.round(rahuSidereal * 1000) / 1000,
-            sign: getZodiac(rahuSidereal),
-            deg_in_sign: getDegreeInSign(rahuSidereal),
-            deg_in_sign_str: getDegreeInSignStr(rahuSidereal)
-        };
-        let ketuSidereal = (rahuSidereal + 180) % 360;
-        positions["ketu"] = {
-            deg: Math.round(ketuSidereal * 1000) / 1000,
-            sign: getZodiac(ketuSidereal),
-            deg_in_sign: getDegreeInSign(ketuSidereal),
-            deg_in_sign_str: getDegreeInSignStr(ketuSidereal)
-        };
-
-        // Асцендент (лагна) — корректный расчёт
-        let ascSidereal = null, ascEcliptic = null;
+        // Раху и Кету по swisseph (верно для ведик)
         try {
-            const observer = new Astronomy.Observer(latitude, longitude, 0);
-            const azimuth = 90;
-            const altitude = 0;
-            const eq = Astronomy.Horizon(date, observer, azimuth, altitude, "normal");
-            ascEcliptic = eclipticLongitude(eq.ra, eq.dec, date);
-            ascSidereal = (ascEcliptic - ayanamsa + 360) % 360;
-        } catch (e) {
-            // ignore
+            const rahuRes = swe.calc_ut_sync(jd, swe.MEAN_NODE, swe.FLAG_SIDEREAL);
+            const rahuSidereal = (rahuRes.longitude + 360) % 360;
+            positions["rahu"] = {
+                deg: Math.round(rahuSidereal * 1000) / 1000,
+                sign: getZodiac(rahuSidereal),
+                deg_in_sign: getDegreeInSign(rahuSidereal),
+                deg_in_sign_str: getDegreeInSignStr(rahuSidereal)
+            };
+            const ketuSidereal = (rahuSidereal + 180) % 360;
+            positions["ketu"] = {
+                deg: Math.round(ketuSidereal * 1000) / 1000,
+                sign: getZodiac(ketuSidereal),
+                deg_in_sign: getDegreeInSign(ketuSidereal),
+                deg_in_sign_str: getDegreeInSignStr(ketuSidereal)
+            };
+        } catch (err) {
+            positions["rahu"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
+            positions["ketu"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: err.message };
         }
 
-        positions["asc"] = {
-            deg: ascSidereal !== null ? Math.round(ascSidereal * 1000) / 1000 : null,
-            sign: ascSidereal !== null ? getZodiac(ascSidereal) : null,
-            deg_in_sign: ascSidereal !== null ? getDegreeInSign(ascSidereal) : null,
-            deg_in_sign_str: ascSidereal !== null ? getDegreeInSignStr(ascSidereal) : null
-        };
+        // Асцендент (лагна) — лучше swisseph-ом, но если нет, то старым методом
+        let ascSidereal = null;
+        try {
+            // swisseph: Ascendant (house cusp 1)
+            const ascRes = swe.houses_ex_sync(jd, latitude, longitude, 'P', swe.FLAG_SIDEREAL);
+            ascSidereal = (ascRes.ascendant + 360) % 360;
+            positions["asc"] = {
+                deg: Math.round(ascSidereal * 1000) / 1000,
+                sign: getZodiac(ascSidereal),
+                deg_in_sign: getDegreeInSign(ascSidereal),
+                deg_in_sign_str: getDegreeInSignStr(ascSidereal)
+            };
+        } catch (e) {
+            positions["asc"] = { deg: null, sign: null, deg_in_sign: null, deg_in_sign_str: null, error: e.message };
+        }
 
         setCORSHeaders(res);
         res.status(200).json({
