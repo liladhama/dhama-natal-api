@@ -1,14 +1,8 @@
 const { DateTime } = require("luxon");
-const swe = require("swisseph"); // добавляем swisseph для ведической точности
+const swe = require("swisseph");
 const Astronomy = require("astronomy-engine");
-const Body = Astronomy.Body;
 
 const JD_J2000 = 2451545.0;
-
-// Используем swisseph для точной Лахири айанамши (ведическое стандартное)
-function getLahiriAyanamsa(jd) {
-    return swe.get_ayanamsa_ut_sync(jd);
-}
 
 function getZodiac(deg) {
     const signs = [
@@ -25,12 +19,6 @@ function getDegreeInSignStr(deg) {
     const m = Math.round(((deg % 30) - d) * 60);
     return `${d}°${m < 10 ? "0" : ""}${m}'`;
 }
-function meanLunarNodeLongitude(jd) {
-    const T = (jd - JD_J2000) / 36525.0;
-    let omega = 125.04452 - 1934.136261 * T + 0.0020708 * T * T + (T * T * T) / 450000;
-    omega = ((omega % 360) + 360) % 360;
-    return omega;
-}
 
 // ВАЖНО: Разрешаем CORS только для нужного домена!
 function setCORSHeaders(res) {
@@ -39,21 +27,6 @@ function setCORSHeaders(res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
-function eclipticLongitude(ra, dec, date) {
-    const time = Astronomy.MakeTime(date);
-    const radRA = ra * 15 * Math.PI / 180;
-    const radDec = dec * Math.PI / 180;
-    const x = Math.cos(radDec) * Math.cos(radRA);
-    const y = Math.cos(radDec) * Math.sin(radRA);
-    const z = Math.sin(radDec);
-    const vec = { x, y, z, t: time };
-    const ecl = Astronomy.Ecliptic(vec);
-    let lon = ecl.elon;
-    lon = (lon + 360) % 360;
-    return lon;
-}
-
-// ============= ОСНОВНОЙ ЭКСПОРТ ==============
 module.exports = async (req, res) => {
     setCORSHeaders(res);
 
@@ -100,9 +73,13 @@ module.exports = async (req, res) => {
         }
 
         // ======= ВЕДИЧЕСКИЙ АЯНАМША С ПОМОЩЬЮ swisseph =======
-        swe.set_ephe_path(__dirname);
-        swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0);
-        const ayanamsa = swe.get_ayanamsa_ut_sync(jd);
+        let ayanamsa = null;
+        try {
+            ayanamsa = (await swe.get_ayanamsa_ut(jd)).ayanamsa;
+        } catch (e) {
+            res.status(500).json({ error: "Ayanamsa calculation failed", stack: e.stack });
+            return;
+        }
 
         const planetNames = [
             'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'
@@ -112,7 +89,7 @@ module.exports = async (req, res) => {
         for (const pname of planetNames) {
             let siderealLon = null;
             try {
-                const resSw = swe.calc_ut_sync(jd, swe[pname.toUpperCase()], swe.FLAG_SIDEREAL);
+                const resSw = await swe.calc_ut(jd, swe[pname.toUpperCase()], swe.FLAG_SIDEREAL);
                 siderealLon = (resSw.longitude + 360) % 360;
                 positions[pname.toLowerCase()] = {
                     deg: Math.round(siderealLon * 1000) / 1000,
@@ -127,7 +104,7 @@ module.exports = async (req, res) => {
 
         // Раху и Кету по swisseph
         try {
-            const rahuRes = swe.calc_ut_sync(jd, swe.MEAN_NODE, swe.FLAG_SIDEREAL);
+            const rahuRes = await swe.calc_ut(jd, swe.MEAN_NODE, swe.FLAG_SIDEREAL);
             const rahuSidereal = (rahuRes.longitude + 360) % 360;
             positions["rahu"] = {
                 deg: Math.round(rahuSidereal * 1000) / 1000,
@@ -148,10 +125,9 @@ module.exports = async (req, res) => {
         }
 
         // Асцендент (лагна)
-        let ascSidereal = null;
         try {
-            const ascRes = swe.houses_ex_sync(jd, latitude, longitude, 'P', swe.FLAG_SIDEREAL);
-            ascSidereal = (ascRes.ascendant + 360) % 360;
+            const ascRes = await swe.houses_ex(jd, latitude, longitude, 'P', swe.FLAG_SIDEREAL);
+            const ascSidereal = (ascRes.ascendant + 360) % 360;
             positions["asc"] = {
                 deg: Math.round(ascSidereal * 1000) / 1000,
                 sign: getZodiac(ascSidereal),
