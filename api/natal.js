@@ -4,10 +4,14 @@ const Body = Astronomy.Body;
 
 const JD_J2000 = 2451545.0;
 
+// === ОБНОВЛЕННАЯ (ТОЧНАЯ) ЛАХИРИ АЯНАМША (Meeus + коррекция) ===
 function getLahiriAyanamsa(jd) {
     const t = (jd - JD_J2000) / 36525;
-    return 22.460148 + 1.396042 * t + 3.08e-4 * t * t;
+    // Meeus, Astronomical Algorithms, 2nd ed., p. 143 + cubic correction
+    let ayanamsa = 22.460148 + 1.396042 * t + 0.000308 * t * t + 0.000087 * t * t * t;
+    return ayanamsa;
 }
+
 function getZodiac(deg) {
     const signs = [
         "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
